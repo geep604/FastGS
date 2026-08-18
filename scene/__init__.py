@@ -17,12 +17,13 @@ from scene.dataset_readers import sceneLoadTypeCallbacks
 from scene.gaussian_model import GaussianModel
 from arguments import ModelParams
 from utils.camera_utils import cameraList_from_camInfos, camera_to_JSON
+from pathlib import Path
 
 class Scene:
 
     gaussians : GaussianModel
 
-    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, resolution_scales=[1.0]):
+    def __init__(self, args : ModelParams, gaussians : GaussianModel, frame:int ,load_iteration=None, shuffle=True, resolution_scales=[1.0]):
         """b
         :param path: Path to colmap scene main folder.
         """
@@ -40,11 +41,19 @@ class Scene:
         self.train_cameras = {}
         self.test_cameras = {}
 
-        if os.path.exists(os.path.join(args.source_path, "sparse")):
+        source_path = Path(args.source_path)
+        camera_path = source_path.parents[1]
+        if os.path.exists(os.path.join(camera_path, "sparse")):
             scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval)
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
             print("Found transforms_train.json file, assuming Blender data set!")
-            scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval)
+            scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval, frame)
+        # elif args.source_path.endswith(".smc"):
+        #     print("Found smc file, assuming DNA-Rendering data set!")
+        #     scene_info = sceneLoadTypeCallbacks["DNA-Rendering"](args.source_path, args.white_background, args.eval, frame)
+        elif any(p.is_dir() for p in source_path.glob("frame*")):
+            print("Found colmap file, assuming Neural3DV data set!")
+            scene_info = sceneLoadTypeCallbacks["Neural3DV"](args.source_path, args.eval, frame)            
         else:
             assert False, "Could not recognize scene type!"
 

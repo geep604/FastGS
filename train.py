@@ -25,6 +25,7 @@ from tqdm import tqdm
 from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
+import torchvision
 try:
     from torch.utils.tensorboard import SummaryWriter
     TENSORBOARD_FOUND = True
@@ -34,12 +35,22 @@ except ImportError:
 from utils.fast_utils import compute_gaussian_score_fastgs, sampling_cameras
 
 
-def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, websockets):
+def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from, websockets, frame,
+             prev_frame_ply=None, prev_frame_dir=None, frame_step=50, prev_iteration=None):
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree, opt.optimizer_type)
-    scene = Scene(dataset, gaussians)
+    scene = Scene(dataset, gaussians, frame)
+    if frame != 0:
+        if prev_frame_ply:
+            ply_path = prev_frame_ply
+        else:
+            base_dir = prev_frame_dir if prev_frame_dir is not None else os.path.dirname(os.path.normpath(dataset.model_path))
+            iteration = prev_iteration if prev_iteration is not None else opt.iterations
+            ply_path = os.path.join(base_dir, str(frame - frame_step), "point_cloud", f"iteration_{iteration}", "point_cloud.ply")
+        gaussians.load_ply(ply_path)
     gaussians.training_setup(opt)
+    gaussians.max_radii2D = torch.zeros((gaussians.get_xyz.shape[0]), device="cuda")
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)
@@ -102,6 +113,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         ssim_value = fast_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim_value)
         loss.backward()
+
+        # if iteration % 100 == 0 and iteration <= 15000 or iteration<=20:
+        #     os.makedirs("debug_renders", exist_ok=True)
+        #     save_path = f"debug_renders/iter_{iteration:05d}.png"
+        #     gt_path = f"debug_renders/iter_{iteration:05d}_gt.png"
+        #     torchvision.utils.save_image(image.clamp(0.0, 1.0), save_path)
+        #     torchvision.utils.save_image(gt_image.clamp(0.0, 1.0), gt_path)
 
         iter_end.record()
 
@@ -258,6 +276,15 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default = None)
     parser.add_argument("--websockets", action='store_true', default=False)
     parser.add_argument("--benchmark_dir", type=str, default=None)
+    parser.add_argument("--frame", type=int, default=0)
+    parser.add_argument("--prev_frame_ply", type=str, default=None,
+                         help="Explicit path to a previous frame's point_cloud.ply to warm-start from. Overrides --prev_frame_dir/--frame_step/--prev_iteration.")
+    parser.add_argument("--prev_frame_dir", type=str, default=None,
+                         help="Base directory containing per-frame output folders (e.g. .../<scene>) used to locate the previous frame's point cloud when --frame > 0. Defaults to the parent directory of --model_path.")
+    parser.add_argument("--frame_step", type=int, default=50,
+                         help="Frame interval between consecutive trained frames, used to locate the previous frame's output folder.")
+    parser.add_argument("--prev_iteration", type=int, default=None,
+                         help="Iteration of the previous frame's saved point cloud to load. Defaults to --iterations.")
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
     
@@ -279,7 +306,12 @@ if __name__ == "__main__":
         args.checkpoint_iterations, 
         args.start_checkpoint, 
         args.debug_from, 
-        args.websockets
+        args.websockets,
+        args.frame,
+        args.prev_frame_ply,
+        args.prev_frame_dir,
+        args.frame_step,
+        args.prev_iteration
     )
 
     # All done

@@ -80,7 +80,7 @@ Our testing environment uses the following CUDA configuration:
 ### 📥 Clone the Repository
 
 ```bash
-git clone https://github.com/fastgs/FastGS.git --recursive
+git clone https://github.com/Pscabby/FastGS.git --recursive
 cd FastGS
 ```
 

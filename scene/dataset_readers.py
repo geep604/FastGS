@@ -65,6 +65,9 @@ def getNerfppNorm(cam_info):
 
     return {"translate": translate, "radius": radius}
 
+# Cameras the S4-GS COLMAP loader always skips.
+SKIPPED_COLMAP_CAMERAS = ("68", "76")
+
 def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
@@ -96,7 +99,7 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder):
 
         image_path = os.path.join(images_folder, os.path.basename(extr.name))
         image_name = os.path.basename(image_path).split(".")[0]
-        if image_name == "68" or image_name == "76":
+        if image_name in SKIPPED_COLMAP_CAMERAS:
             continue
         image = Image.open(image_path)
 

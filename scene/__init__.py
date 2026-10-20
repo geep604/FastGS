@@ -13,11 +13,34 @@ import os
 import random
 import json
 from utils.system_utils import searchForMaxIteration
-from scene.dataset_readers import sceneLoadTypeCallbacks
+from scene.dataset_readers import sceneLoadTypeCallbacks, getNerfppNorm, SKIPPED_COLMAP_CAMERAS
 from scene.gaussian_model import GaussianModel
 from arguments import ModelParams
 from utils.camera_utils import cameraList_from_camInfos, camera_to_JSON
 from pathlib import Path
+
+def exclude_cameras(scene_info, path, blender):
+    """Drop the cameras listed in an S4GS test_cameras.json from both splits.
+
+    Names are COLMAP image stems ("17") or, for Blender scenes, camera folders
+    ("Spiral_Camera_08"); the scene extent is recomputed from the cameras kept.
+    """
+    with open(path) as f:
+        excluded = set(json.load(f)["test_cameras"])
+
+    def name(cam):
+        return os.path.basename(os.path.dirname(cam.image_path)) if blender else cam.image_name
+
+    cams = scene_info.train_cameras + scene_info.test_cameras
+    found = {name(c) for c in cams}
+    missing = excluded - found - set(SKIPPED_COLMAP_CAMERAS)
+    assert not missing, f"Cameras to exclude not found in the dataset: {sorted(missing)}"
+    train = [c for c in scene_info.train_cameras if name(c) not in excluded]
+    test = [c for c in scene_info.test_cameras if name(c) not in excluded]
+    print(f"Excluded {len(cams) - len(train) - len(test)} test cameras listed in {path}")
+    return scene_info._replace(train_cameras=train, test_cameras=test,
+                               nerf_normalization=getNerfppNorm(train))
+
 
 class Scene:
 
@@ -43,10 +66,12 @@ class Scene:
 
         source_path = Path(args.source_path)
         camera_path = source_path.parents[1]
+        blender = False
         if os.path.exists(os.path.join(camera_path, "sparse")):
             scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval)
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
             print("Found transforms_train.json file, assuming Blender data set!")
+            blender = True
             scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval, frame)
         # elif args.source_path.endswith(".smc"):
         #     print("Found smc file, assuming DNA-Rendering data set!")
@@ -56,6 +81,9 @@ class Scene:
             scene_info = sceneLoadTypeCallbacks["Neural3DV"](args.source_path, args.eval, frame)            
         else:
             assert False, "Could not recognize scene type!"
+
+        if args.exclude_cameras:
+            scene_info = exclude_cameras(scene_info, args.exclude_cameras, blender)
 
         if not self.loaded_iter:
             with open(scene_info.ply_path, 'rb') as src_file, open(os.path.join(self.model_path, "input.ply") , 'wb') as dest_file:

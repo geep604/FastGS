@@ -54,6 +54,7 @@ class ModelParams(ParamGroup):
         self._white_background = False
         self.data_device = "cuda"
         self.eval = False
+        self.exclude_cameras = ""  # JSON from S4GS stage1.py listing the test cameras to leave out
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):

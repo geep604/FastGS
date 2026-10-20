@@ -315,7 +315,11 @@ __device__ inline uint32_t processTiles(
 }
 
 // This is built upon Speedy-Splat — many thanks for their excellent work.
-__device__ inline uint32_t duplicateToTilesTouched(
+// Not inlined: preprocessCUDA (counting) and duplicateWithKeys (writing) must
+// get the same tile count. Inlined into the two kernels, the compiler may
+// contract the float math differently (seen on sm_120), the counts disagree
+// and the key buffer is under- or over-filled (illegal memory access).
+static __device__ __noinline__ uint32_t duplicateToTilesTouched(
     const float2 p, const float4 con_o, const dim3 grid, const float mult,
     uint32_t idx, uint32_t off, float depth,
     uint64_t* gaussian_keys_unsorted,

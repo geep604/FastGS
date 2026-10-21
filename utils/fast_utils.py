@@ -96,7 +96,18 @@ def compute_gaussian_score_fastgs(camlist, gaussians, pipe, bg, args, DENSIFY = 
         else:
             full_metric_score += photometric_loss * accum_loss_counts
 
-    pruning_score = (full_metric_score - torch.min(full_metric_score)) / (torch.max(full_metric_score) - torch.min(full_metric_score))
+    # S4GS: guard the min-max normalization. When no pixel exceeds loss_thresh in any sampled
+    # view (observed on Mixamo womanpunch, frame 0, iteration 700), every Gaussian has the same
+    # score, max == min and the division gave NaN, which made torch.multinomial in
+    # densify_and_prune_fastgs fail ("probability tensor contains inf, nan or element < 0").
+    # A constant score carries no ranking, so it maps to 0 for every Gaussian (nothing flagged,
+    # uniform pruning weights); the normal path is unchanged.
+    score_min, score_max = torch.min(full_metric_score), torch.max(full_metric_score)
+    if score_max > score_min:
+        pruning_score = (full_metric_score - score_min) / (score_max - score_min)
+    else:
+        print(f"[fastgs] pruning score is constant ({float(score_min):.4g}); using zeros (no multi-view flags)")
+        pruning_score = torch.zeros_like(full_metric_score)
     
     if DENSIFY:
         importance_score = torch.div(full_metric_counts, len(camlist), rounding_mode='floor')

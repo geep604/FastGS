@@ -102,6 +102,12 @@ def compute_gaussian_score_fastgs(camlist, gaussians, pipe, bg, args, DENSIFY = 
     # densify_and_prune_fastgs fail ("probability tensor contains inf, nan or element < 0").
     # A constant score carries no ranking, so it maps to 0 for every Gaussian (nothing flagged,
     # uniform pruning weights); the normal path is unchanged.
+    # S4GS: a non-finite score means the renders or the photometric loss are already NaN (the model
+    # diverged); fail here with a clear message instead of in a later CUDA kernel (a NaN Gaussian touches
+    # no tile, num_rendered becomes 0 and the rasterizer backward is launched with an empty grid:
+    # "CUDA error: invalid configuration argument"; seen on Mixamo womanpunch and long2 frame 0, 5070).
+    if not torch.isfinite(full_metric_score).all():
+        raise RuntimeError("[fastgs] non-finite multi-view metric score: the model diverged (NaN loss / parameters)")
     score_min, score_max = torch.min(full_metric_score), torch.max(full_metric_score)
     if score_max > score_min:
         pruning_score = (full_metric_score - score_min) / (score_max - score_min)
